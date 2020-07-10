@@ -1,0 +1,190 @@
+---
+kind: Template
+apiVersion: v1
+metadata:
+  name: application-deploy
+  annotations:
+    openshift.io/display-name: Static react js App Deploy Template
+    description: A template to deploy your an App with a HTTP endpoint
+    iconClass: icon-cube
+    tags: http
+objects:
+  - apiVersion: v1
+    kind: ImageStream
+    metadata:
+      labels:
+        build: '${NAME}'
+      name: '${NAME}'
+    spec: {}
+  - apiVersion: v1
+    kind: DeploymentConfig
+    metadata:
+      name: '${NAME}'
+      labels:
+        app: '${NAME}'
+        stage: '${NODE_ENV}'
+        owner: '${OWNER}'
+        tier: '${TIER}'
+        customer-facing: '${CUSTOMER_FACING}'
+        app-role: '${APP_ROLE}'
+    spec:
+      replicas: 1
+      selector:
+        name: '${NAME}'
+      strategy:
+        activeDeadlineSeconds: 21600
+        resources: {}
+        rollingParams:
+          intervalSeconds: 1
+          maxSurge: 25%
+          maxUnavailable: 25%
+          timeoutSeconds: 600
+          updatePeriodSeconds: 1
+        type: Rolling
+      template:
+        metadata:
+          creationTimestamp:
+          labels:
+            name: '${NAME}'
+            version: '${VERSION_NUMBER}'
+            release: '${RELEASE}'
+            stage: '${NODE_ENV}'
+            owner: '${OWNER}'
+            tier: '${TIER}'
+            customer-facing: '${CUSTOMER_FACING}'
+            app-role: '${APP_ROLE}'
+            git-commit: '${GIT_COMMIT}'
+            jenkins-build: '${JENKINS_TAG}'
+        spec:
+          containers:
+            - image: 'docker-registry.default.svc:5000/${NAMESPACE}/${NAME}:${APP_TAG}'
+              imagePullPolicy: Always
+              name: '${NAME}'
+              env:
+                - name: NODE_ENV
+                  value: ${NODE_ENV}
+              ports:
+                - containerPort: 8080
+                  protocol: TCP
+              resources: {}
+              terminationMessagePath: '/dev/termination-log'
+              readinessProbe:
+                httpGet:
+                  path: /actuator/health
+                  port: 8080
+                initialDelaySeconds: 3
+                periodSeconds: 3
+              livenessProbe:
+                httpGet:
+                  path: /actuator/health
+                  port: 8080
+                initialDelaySeconds: 20
+                timeoutSeconds: 2
+                periodSeconds: 8
+                failureThreshold: 1
+          dnsPolicy: ClusterFirst
+          restartPolicy: Always
+          securityContext: {}
+          terminationGracePeriodSeconds: 30
+      test: false
+      triggers: []
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        name: '${NAME}'
+      name: '${NAME}'
+    spec:
+      ports:
+        - name: 8080-tcp
+          port: 8080
+          protocol: TCP
+          targetPort: 8080
+      selector:
+        name: '${NAME}'
+      sessionAffinity: None
+      type: ClusterIP
+  - apiVersion: v1
+    kind: Route
+    metadata:
+      labels:
+        name: '${NAME}'
+      name: '${NAME}'
+    spec:
+      port:
+        targetPort: 8080-tcp
+      to:
+        kind: Service
+        name: '${NAME}'
+        weight: 100
+      wildcardPolicy: None
+  - apiVersion: v1
+    kind: RoleBinding
+    metadata:
+      name: edit
+    roleRef:
+      name: edit
+    subjects:
+      - kind: ServiceAccount
+        name: jenkins
+        namespace: '${PIPELINES_NAMESPACE}'
+    userNames:
+      - system:serviceaccount:${PIPELINES_NAMESPACE}:${DEPLOYER_USER}
+parameters:
+  - name: NAME
+    displayName: Name
+    description: The name assigned to all objects and the related imagestream.
+    required: true
+  - name: VERSION_NUMBER
+    displayName: Version Number
+    description: The application's version number.
+  - name: RELEASE
+    displayName: Release
+    description: If this is a release version or not.
+    value: "false"
+  - name: OWNER
+    displayName: Team Owner.
+    description: Team that owns the application.
+    value: Kraken
+  - name: TIER
+    displayName: Application's Tier
+    description: Application's Tier.
+    value: back-end
+  - name: CUSTOMER_FACING
+    displayName: Customer Facing
+    description: If the app is customer facing.
+    value: "false"
+  - name: APP_ROLE
+    displayName: Application's Role
+    description: If the app is customer facing.
+    value: api
+  - name: GIT_COMMIT
+    displayName: Git Commit
+    description: Commit that triggered the deployment.
+  - name: JENKINS_TAG
+    displayName: Jenkins Tag
+    description: The Jenkins build's tag(number).
+  - name: APP_TAG
+    displayName: App Tag
+    description: The tag of the image to use eg latest.
+    required: true
+    value: latest
+  - name: NAMESPACE
+    displayName: Docker image namespace
+    description: The namespace of the image to use eg js-apps.
+    required: true
+  - name: DEPLOYER_USER
+    displayName: Deployer User
+    description: The name to the serviceaccount user for deploying apps eg jenkins
+    required: true
+  - name: PIPELINES_NAMESPACE
+    displayName: Project/Namespace for Jenkins Pipelines
+    description: The project/namespace where the Jenkins executing pipelines is deployed.
+    required: true
+  - name: NODE_ENV
+    displayName: Environment to use for server
+    description: Environment to use for server
+    required: true
+    value: dev
+labels:
+  template: application-deploy-template

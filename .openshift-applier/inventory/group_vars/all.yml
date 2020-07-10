@@ -1,0 +1,68 @@
+---
+app_name: application
+
+build:
+  NAME: '{{ app_name }}'
+  IMAGE_STREAM_SOURCE_NAME: openjdk-11-rhel7
+  IMAGE_STREAM_SOURCE_TAG: 1.0-16.1567588131
+deploy:
+  dev:
+    PIPELINES_NAMESPACE: '{{ ci_cd_namespace }}'
+    NAME: '{{ app_name }}'
+    NAMESPACE: '{{ dev_namespace }}'
+    DEPLOYER_USER: jenkins
+    NODE_ENV: dev
+  test:
+    PIPELINES_NAMESPACE: '{{ ci_cd_namespace }}'
+    NAME: '{{ app_name }}'
+    NAMESPACE: '{{ test_namespace }}'
+    DEPLOYER_USER: jenkins
+    NODE_ENV: test
+
+openshift_cluster_content:
+  - object: app-builds
+    content:
+      - name: '{{ app_name }}-build'
+        template: '{{ playbook_dir }}/templates/{{ app_name }}-build.yml'
+        params_from_vars: '{{ build }}'
+        namespace: '{{ ci_cd_namespace }}'
+        tags:
+        - build
+      # - name: {{ app_name }}-pipeline
+      #   template: "{{ playbook_dir }}/templates/ocp-pipeline.yml"
+      #   params: "{{ playbook_dir }}/params/ocp-pipeline"
+      #   namespace: "{{ ci_cd_namespace }}"
+      #   tags:
+      #   - pipeline
+  - object: deploy-dev
+    content:
+      - name: '{{ app_name }}'
+        template: '{{ playbook_dir }}/templates/{{ app_name }}-deploy.yml'
+        params_from_vars: '{{ deploy.dev }}'
+        namespace: '{{ dev_namespace }}'
+        tags:
+          - deploy
+          - dev
+      - name: '{{ app_name }}-mongo-db'
+        template: '{{ playbook_dir }}/templates/mongodb.yml'
+        params_from_vars: '{{ db }}'
+        namespace: '{{ dev_namespace }}'
+        tags:
+          - deploy
+          - dev
+  - object: deploy-test
+    content:
+      - name: '{{ app_name }}'
+        template: '{{ playbook_dir }}/templates/{{ app_name }}-deploy.yml'
+        params_from_vars: '{{ deploy.test }}'
+        namespace: '{{ test_namespace }}'
+        tags:
+          - deploy
+          - test
+      - name: '{{ app_name }}-mongo-db'
+        template: '{{ playbook_dir }}/templates/mongodb.yml'
+        params_from_vars: '{{ db }}'
+        namespace: '{{ test_namespace }}'
+        tags:
+          - deploy
+          - test

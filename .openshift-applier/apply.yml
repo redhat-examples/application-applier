@@ -1,0 +1,11 @@
+---
+- name: Build and Deploy vv-viamais-simulador-api
+  hosts: app
+  vars:
+    namespace_prefix: 'labs'
+    ci_cd_namespace: '{{ namespace_prefix }}-ci-cd'
+    dev_namespace: '{{ namespace_prefix }}-dev'
+    test_namespace: '{{ namespace_prefix }}-test'
+  tasks:
+    - include_role:
+        name: openshift-applier/roles/openshift-applier
