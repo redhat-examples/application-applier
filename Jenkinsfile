@@ -22,12 +22,12 @@ pipeline{
 
         DISPLAY = 0
 
-        pom = readMavenPom file: 'infra-spring/pom.xml'
-
-        ARTIFACTID = pom.getArtifactId();
-        VERSION = pom.getVersion();
-
         RELEASE = false
+
+        REGISTRY = "NAME_OF_REGISTRY"
+        
+        // This file should be cotains only name and vesion of image e.g: tomcat:latest
+        REF_IMAGE = readFile "./nexus-image-reference.txt"
     }
 
 
@@ -89,7 +89,7 @@ pipeline{
             when {
               expression { GIT_BRANCH ==~ /(.*master|.*develop|.*feature.*)/ }
             }
-            stages{
+            stages { 
                 stage("Ansible Galaxy") {
                     steps {
                         echo '### Ansible Galaxy Installing Requirements ###'
@@ -105,7 +105,58 @@ pipeline{
             }
         }
 
+        stage("automation for openshift") {
+            agent {
+                node {
+                    label "master"
+                }
+            }
 
+            stages {
+
+                stage("Import Image From Nexus") {
+                    
+                    sh '''
+                        oc project ${PROJECT_NAMESPACE}
+                        oc import-image ${PROJECT_NAMESPACE}/${REF_IMAGE} --from=${REGISTRY}/${REF_IMAGE} --confirm
+                    '''
+                }
+
+                stage("Openshift Deployment") {
+                     when {
+                        allOf{
+                            expression { GIT_BRANCH ==~ /(.*master|.*develop|.*feature.*)/ }
+                            expression { currentBuild.result != 'UNSTABLE' }
+                        }
+                    }
+                    steps {
+                        echo '### tag image for namespace ###'
+                        
+                        sh  '''
+                            oc project ${PROJECT_NAMESPACE}
+                            oc tag ${PIPELINES_NAMESPACE}/${APP_NAME}:${JENKINS_TAG} ${PROJECT_NAMESPACE}/${APP_NAME}:${JENKINS_TAG}
+                        '''
+                        
+                        echo '### set env vars and image for deployment ###'
+
+                        sh '''
+                            oc set env dc ${APP_NAME} NODE_ENV=${NODE_ENV} SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
+                            oc set image dc/${APP_NAME} ${APP_NAME}=docker-registry.default.svc:5000/${PROJECT_NAMESPACE}/${APP_NAME}:${JENKINS_TAG}
+                            oc label --overwrite dc ${APP_NAME} stage=${NODE_ENV}
+                            oc patch dc ${APP_NAME} -p "{\\"spec\\":{\\"template\\":{\\"metadata\\":{\\"labels\\":{\\"version\\":\\"${VERSION}\\",\\"release\\":\\"${RELEASE}\\",\\"stage\\":\\"${NODE_ENV}\\",\\"git-commit\\":\\"${GIT_COMMIT}\\",\\"jenkins-build\\":\\"${JENKINS_TAG}\\"}}}}}"
+                            oc rollout latest dc/${APP_NAME}
+                        '''
+                        echo '### Verify OCP Deployment ###'
+                        openshiftVerifyDeployment depCfg: env.APP_NAME,
+                            namespace: env.PROJECT_NAMESPACE,
+                            replicaCount: '1',
+                            verbose: 'false',
+                            verifyReplicaCount: 'true',
+                            waitTime: '',
+                            waitUnit: 'sec'
+                    }
+                }
+            }
+        }
     }
-
 }
